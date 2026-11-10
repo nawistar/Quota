@@ -1,9 +1,13 @@
 import json
 import os
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, ttk
 
-DATA_FILE = "quotes_data.txt"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, "quotes_data.json")
+
+THEME_FILE = os.path.join(BASE_DIR, "theme.json")
+AUTOSAVE_INTERVAL = 30_000  # 30초 (밀리초)
 
 class QuoteApp:
     def __init__(self, root):
@@ -12,12 +16,18 @@ class QuoteApp:
         self.root.geometry("800x550")
         self.root.minsize(700, 500)
 
+        self.dark_mode = self.load_theme()
+        self.autosave_job = None
+
         # 데이터 구조: { "이름": {"quotes": ["어록1", "어록2"], "favorite": True/False} }
         self.data = {}
         self.current_person = None
+        self.current_mode = "어록"
 
         self.load_data()
         self.create_widgets()
+        self.apply_theme()
+        self.start_autosave()
         
         # 창을 닫을 때 자동 저장 설정
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -34,13 +44,26 @@ class QuoteApp:
             self.data = {}
 
     def save_data(self):
-        # 현재 선택된 사람의 텍스트 영역 내용을 저장 데이터에 반영
         self.save_current_input()
+
+        temp_file = DATA_FILE + ".tmp"
+
         try:
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            messagebox.showerror("오류", f"데이터를 저장하는 중 문제가 발생함.\n{e}")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    self.data,
+                    f,
+                    ensure_ascii=False,
+                    indent=4
+                )
+
+            os.replace(temp_file, DATA_FILE)
+
+        except (OSError, TypeError, ValueError) as e:
+            messagebox.showerror(
+                "오류",
+                f"데이터 저장 실패:\n{e}"
+            )
 
     def create_widgets(self):
         # 전체 레이아웃: 좌우 분할 (PanedWindow)
@@ -105,18 +128,32 @@ class QuoteApp:
         right_frame = tk.Frame(main_pane)
         main_pane.add(right_frame)
 
-        # 우측 상단 정보 및 즐겨찾기 토글 버튼
+        # 우측 상단 정보 및 모드 선택 콤보박스, 즐겨찾기 버튼
         top_bar = tk.Frame(right_frame)
         top_bar.pack(fill=tk.X, padx=5, pady=5)
 
         self.lbl_current_name = tk.Label(top_bar, text="선택해라.", font=("맑은 고딕", 14, "bold"))
         self.lbl_current_name.pack(side=tk.LEFT, padx=5)
 
+        # ⬇️ 모드 선택 콤보박스 추가 (어록 / 정보)
+        self.mode_combobox = ttk.Combobox(top_bar, values=["어록", "정보"], state="readonly", width=10, font=("맑은 고딕", 10))
+        self.mode_combobox.set("어록")
+        self.mode_combobox.pack(side=tk.LEFT, padx=10)
+        self.mode_combobox.bind("<<ComboboxSelected>>", self.on_mode_change)
+
         self.fav_btn = tk.Button(top_bar, text="⭐ 즐겨찾기 등록", command=self.toggle_favorite, state=tk.DISABLED, font=("맑은 고딕", 9))
         self.fav_btn.pack(side=tk.RIGHT, padx=5)
 
-        # 어록 입력/수정 텍스트 상자 (여러 줄 입력 가능, 줄바꿈으로 어록 구분)
-        quote_frame = tk.LabelFrame(right_frame, text="목록", font=("맑은 고딕", 10, "bold"))
+        self.theme_btn = tk.Button(
+            top_bar,
+            text="🌙 다크 모드",
+            command=self.toggle_theme,
+            font=("맑은 고딕", 9)
+        )
+        self.theme_btn.pack(side=tk.RIGHT, padx=5)
+
+        # 텍스트 박스 상단 라벨도 모드에 따라 바뀌도록 텍스트 프레임 구성
+        quote_frame = tk.LabelFrame(right_frame, text="기록 상자", font=("맑은 고딕", 10, "bold"))
         quote_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         self.quote_text = scrolledtext.Text(quote_frame, wrap=tk.WORD, font=("맑은 고딕", 11), state=tk.DISABLED)
@@ -147,28 +184,61 @@ class QuoteApp:
             self.current_person = select_name
             self.load_person_quotes(select_name)
 
+    def get_text_items(self):
+        content = self.quote_text.get("1.0", tk.END).strip()
+        return [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip()
+        ]
+
     def save_current_input(self):
         if self.current_person and self.current_person in self.data:
-            content = self.quote_text.get("1.0", tk.END).strip()
-            # 빈 줄을 제외하고 어록 리스트 생성
-            quotes = [line.strip() for line in content.split("\n") if line.strip()]
-            self.data[self.current_person]["quotes"] = quotes
+            items = self.get_text_items()
+            
+            # 👈 "어록"이면 quotes, "정보"면 info 키 사용
+            key = "quotes" if self.mode_combobox.get() == "어록" else "info"
+            self.data[self.current_person][key] = items
 
     def load_person_quotes(self, name):
         self.current_person = name
-        self.lbl_current_name.config(text=f"💾{name}의 데이터")
+        self.lbl_current_name.config(text=f"📖 {name}")
         self.fav_btn.config(state=tk.NORMAL)
         
-        # 즐겨찾기 버튼 텍스트 업데이트
         is_fav = self.data[name].get("favorite", False)
         self.fav_btn.config(text="⭐ 즐겨찾기 해제" if is_fav else "⭐ 즐겨찾기 등록")
 
-        # 텍스트 박스 활성화 및 내용 채우기
+        # 텍스트 박스 활성화 및 현재 모드에 맞는 데이터 로드
         self.quote_text.config(state=tk.NORMAL)
         self.quote_text.delete("1.0", tk.END)
         
-        quotes = self.data[name].get("quotes", [])
-        self.quote_text.insert(tk.END, "\n".join(quotes))
+        key = "quotes" if self.mode_combobox.get() == "어록" else "info"
+        items = self.data[name].get(key, [])
+        self.quote_text.insert(tk.END, "\n".join(items))
+        
+        # 모드가 실제로 바뀔 때만 처리
+    def on_mode_change(self, event):
+        new_mode = self.mode_combobox.get()
+        
+        if self.current_mode != new_mode:
+            if self.current_person and self.current_person in self.data:
+                # 1. 바뀌기 전 모드의 키에 현재 텍스트 저장
+                content = self.quote_text.get("1.0", tk.END).strip()
+                items = [line.strip() for line in content.split("\n") if line.strip()]
+                old_key = "quotes" if self.current_mode == "어록" else "info"
+                self.data[self.current_person][old_key] = items
+
+            # 2. 현재 모드 갱신
+            self.current_mode = new_mode
+
+            # 3. 새로운 모드의 데이터를 텍스트박스에 로드
+            if self.current_person:
+                self.quote_text.config(state=tk.NORMAL)
+                self.quote_text.delete("1.0", tk.END)
+                
+                new_key = "quotes" if self.current_mode == "어록" else "info"
+                new_items = self.data[self.current_person].get(new_key, [])
+                self.quote_text.insert(tk.END, "\n".join(new_items))
 
     def on_all_select(self, event):
         selection = self.all_listbox.curselection()
@@ -205,12 +275,18 @@ class QuoteApp:
     def toggle_favorite(self):
         if not self.current_person:
             return
-        
+
+        self.save_current_input()
+
         current_status = self.data[self.current_person].get("favorite", False)
         new_status = not current_status
         self.data[self.current_person]["favorite"] = new_status
 
-        self.fav_btn.config(text="⭐ 즐겨찾기 해제" if new_status else "⭐ 즐겨찾기 등록")
+        self.fav_btn.config(
+            text="⭐ 즐겨찾기 해제" if new_status
+            else "⭐ 즐겨찾기 등록"
+        )
+
         self.refresh_lists(select_name=self.current_person)
 
     def add_person(self):
@@ -237,7 +313,11 @@ class QuoteApp:
                 return
 
             self.save_current_input()
-            self.data[name] = {"quotes": [], "favorite": False}
+            self.data[name] = {
+                "quotes": [],
+                "info": [],
+                "favorite": False
+            }
             add_win.destroy()
             self.refresh_lists(select_name=name)
 
@@ -245,6 +325,9 @@ class QuoteApp:
         name_entry.bind("<Return>", lambda e: confirm())
 
         tk.Button(add_win, text="확인", command=confirm, bg="#e0f7fa", width=10, font=("맑은 고딕", 9)).pack(pady=5)
+
+        # 다크모드 적용
+        self.apply_widget_theme(add_win)
 
     def delete_person(self):
         if not self.current_person:
@@ -263,6 +346,7 @@ class QuoteApp:
             self.quote_text.config(state=tk.DISABLED)
 
             self.refresh_lists()
+            self.save_data()
 
     def clear_selection(self):
         # 현재 편집 중인 내용 저장 후 선택 초기화
@@ -283,18 +367,240 @@ class QuoteApp:
     def check_empty_click_all(self, event):
         # 클릭한 위치(y좌표)에 해당하는 아이템 index 확인
         index = self.all_listbox.nearest(event.y)
+        bbox = self.all_listbox.bbox(index)
         # 리스트가 비어있거나, 실제 아이템 영역이 아닌 아래쪽 빈 공간을 클릭한 경우
-        if self.all_listbox.size() == 0 or event.y > self.all_listbox.bbox(index)[1] + self.all_listbox.bbox(index)[3]:
+        if bbox is None or event.y > bbox[1] + bbox[3]:
             self.clear_selection()
 
     def check_empty_click_fav(self, event):
         index = self.fav_listbox.nearest(event.y)
-        if self.fav_listbox.size() == 0 or event.y > self.fav_listbox.bbox(index)[1] + self.fav_listbox.bbox(index)[3]:
+        bbox = self.fav_listbox.bbox(index)
+
+        if bbox is None or event.y > bbox[1] + bbox[3]:
             self.clear_selection()
 
+    def start_autosave(self):
+        """자동 저장 시작"""
+        if self.autosave_job is not None:
+            self.root.after_cancel(self.autosave_job)
+
+        self.autosave_job = self.root.after(
+            AUTOSAVE_INTERVAL,
+            self.autosave
+        )
+
+    def autosave(self):
+        """현재 데이터 자동 저장"""
+        try:
+            self.save_data()
+        finally:
+            # 다음 자동 저장 예약
+            self.autosave_job = self.root.after(
+                AUTOSAVE_INTERVAL,
+                self.autosave
+            )
+
+    def load_theme(self):
+        """마지막 테마 불러오기"""
+        try:
+            with open(THEME_FILE, "r", encoding="utf-8") as f:
+                theme = json.load(f)
+
+            return theme.get("dark_mode", False)
+
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return False
+
+    def save_theme(self):
+        """현재 테마 저장"""
+        try:
+            with open(THEME_FILE, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"dark_mode": self.dark_mode},
+                    f,
+                    indent=4
+                )
+
+        except OSError as e:
+            messagebox.showerror("오류", f"테마 저장 실패:\n{e}")
+
+    def toggle_theme(self):
+        self.dark_mode = not self.dark_mode
+
+        self.apply_theme()
+        self.save_theme()
+
+    def apply_theme(self):
+        if self.dark_mode:
+            colors = {
+                "bg": "#1e1e1e",
+                "fg": "#ffffff",
+                "frame": "#252526",
+                "text_bg": "#2d2d30",
+                "entry_bg": "#333333",
+                "select_bg": "#094771",
+                "button_bg": "#3c3c3c",
+                "border": "#555555"
+            }
+        else:
+            colors = {
+                "bg": "#f0f0f0",
+                "fg": "#000000",
+                "frame": "#f0f0f0",
+                "text_bg": "#ffffff",
+                "entry_bg": "#ffffff",
+                "select_bg": "#cce8ff",
+                "button_bg": "#e0e0e0",
+                "border": "#cccccc"
+            }
+
+        self.colors = colors
+
+        self.apply_widget_theme(self.root)
+
+        # ttk 위젯 스타일
+        style = ttk.Style()
+
+        # Windows 기본 테마 대신 색상 변경이 가능한 테마 사용
+        style.theme_use("clam")
+
+        # 콤보박스 기본 스타일
+        style.configure(
+            "TCombobox",
+            fieldbackground=colors["entry_bg"],
+            background=colors["button_bg"],
+            foreground=colors["fg"],
+            arrowcolor=colors["fg"],
+            selectbackground=colors["select_bg"],
+            selectforeground=colors["fg"]
+        )
+
+        # 콤보박스 상태별 글자색 및 배경색 설정
+        style.map(
+            "TCombobox",
+            fieldbackground=[
+                ("readonly", colors["entry_bg"]),
+                ("disabled", colors["entry_bg"])
+            ],
+            foreground=[
+                ("readonly", colors["fg"]),
+                ("disabled", colors["fg"]),
+                ("!disabled", colors["fg"])
+            ],
+            selectbackground=[
+                ("readonly", colors["select_bg"])
+            ],
+            selectforeground=[
+                ("readonly", colors["fg"])
+            ],
+            background=[
+                ("active", colors["select_bg"])
+            ]
+        )
+
+        # 드롭다운 목록 글자색과 배경색 설정
+        self.root.option_add(
+            "*TCombobox*Listbox*Background",
+            colors["entry_bg"]
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox*Foreground",
+            colors["fg"]
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox*selectBackground",
+            colors["select_bg"]
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox*selectForeground",
+            colors["fg"]
+        )
+
+        self.theme_btn.config(
+            text="☀️ 라이트 모드" if self.dark_mode
+            else "🌙 다크 모드"
+        )
+
+    def apply_widget_theme(self, parent):
+        c = self.colors
+
+        for widget in parent.winfo_children():
+            widget_type = widget.winfo_class()
+
+            try:
+                if widget_type in ("Frame", "PanedWindow"):
+                    widget.configure(
+                        bg=c["bg"],
+                        highlightbackground=c["border"]
+                    )
+
+                elif widget_type == "LabelFrame":
+                    widget.configure(
+                        bg=c["frame"],
+                        fg=c["fg"]
+                    )
+
+                elif widget_type == "Label":
+                    widget.configure(
+                        bg=c["frame"],
+                        fg=c["fg"]
+                    )
+
+                elif widget_type == "Button":
+                    widget.configure(
+                        bg=c["button_bg"],
+                        fg=c["fg"],
+                        activebackground=c["select_bg"],
+                        activeforeground=c["fg"]
+                    )
+
+                elif widget_type == "Listbox":
+                    widget.configure(
+                        bg=c["text_bg"],
+                        fg=c["fg"],
+                        selectbackground=c["select_bg"],
+                        selectforeground=c["fg"],
+                        highlightbackground=c["border"]
+                    )
+
+                elif widget_type == "Text":
+                    widget.configure(
+                        bg=c["text_bg"],
+                        fg=c["fg"],
+                        insertbackground=c["fg"],
+                        selectbackground=c["select_bg"]
+                    )
+
+                elif widget_type == "Entry":
+                    widget.configure(
+                        bg=c["entry_bg"],
+                        fg=c["fg"],
+                        insertbackground=c["fg"]
+                    )
+
+                elif widget_type == "Scrollbar":
+                    widget.configure(
+                        bg=c["button_bg"],
+                        troughcolor=c["bg"],
+                        activebackground=c["select_bg"]
+                    )
+
+            except tk.TclError:
+                pass
+
+            # 하위 위젯에도 테마 적용
+            self.apply_widget_theme(widget)
+
     def on_closing(self):
-        # 창을 닫을 때 자동 저장 수행
+        # 예약된 자동 저장 취소
+        if self.autosave_job is not None:
+            self.root.after_cancel(self.autosave_job)
+            self.autosave_job = None
+
+        # 데이터와 테마 저장
         self.save_data()
+        self.save_theme()
+
         self.root.destroy()
 
 if __name__ == "__main__":
