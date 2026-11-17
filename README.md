@@ -19,11 +19,11 @@ Python Tkinter 기반의 **주변인 데이터 기록 프로그램**. 인물별 
 ## 🚀 사용 방법
 
 1. Python 설치 확인
-2. 코드를 `app.py`로 저장
-3. 터미널 또는 CMD에서 실행
+2. 코드를 `app.pyw`로 저장
+3. **더블클릭**하여 실행 또는 터미널/CMD에서 실행
 
 ```bash
-python app.py
+python app.pyw
 ```
 
 데이터는 `quotes_data.json`, 테마 설정은 `theme.json`에 저장된다.
