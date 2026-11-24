@@ -21,7 +21,7 @@ class QuoteApp:
         self.current_person = None
         self.current_mode = "어록"
 
-        # ⬇️ 통합 파일에서 데이터와 테마를 한 번에 불러옴
+        # 통합 파일에서 데이터와 테마를 한 번에 불러옴
         self.dark_mode = self.load_data()
 
         self.create_widgets()
@@ -92,7 +92,7 @@ class QuoteApp:
         self.fav_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.fav_listbox.bind("<<ListboxSelect>>", self.on_fav_select)
         
-        # ⬇️ 빈 공간 클릭 시 선택 해제 바인딩 추가
+        # 빈 공간 클릭 시 선택 해제 바인딩 추가
         self.fav_listbox.bind("<Button-1>", self.check_empty_click_fav)
 
         # 2. 좌측 하단: 전체 이름 목록 영역 (가나다순)
@@ -110,7 +110,7 @@ class QuoteApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.all_listbox.bind("<<ListboxSelect>>", self.on_all_select)
         
-        # ⬇️ 빈 공간 클릭 시 선택 해제 바인딩 추가
+        # 빈 공간 클릭 시 선택 해제 바인딩 추가
         self.all_listbox.bind("<Button-1>", self.check_empty_click_all) 
 
         # 인물 추가, 삭제 및 선택 해제 버튼 영역 (두 줄 레이아웃)
@@ -145,7 +145,7 @@ class QuoteApp:
         self.lbl_current_name = tk.Label(top_bar, text="선택해라.", font=("맑은 고딕", 14, "bold"))
         self.lbl_current_name.pack(side=tk.LEFT, padx=5)
 
-        # ⬇️ 모드 선택 콤보박스 추가 (어록 / 정보)
+        # 모드 선택 콤보박스 추가 (어록 / 정보)
         self.mode_combobox = ttk.Combobox(top_bar, values=["어록", "정보"], state="readonly", width=10, font=("맑은 고딕", 10))
         self.mode_combobox.set("어록")
         self.mode_combobox.pack(side=tk.LEFT, padx=10)
