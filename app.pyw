@@ -4,9 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "quotes_data.json")
-
-THEME_FILE = os.path.join(BASE_DIR, "theme.json")
+COMBINED_FILE = os.path.join(BASE_DIR, "app_data.json")
 AUTOSAVE_INTERVAL = 30_000  # 30초 (밀리초)
 
 class QuoteApp:
@@ -16,7 +14,6 @@ class QuoteApp:
         self.root.geometry("800x550")
         self.root.minsize(700, 500)
 
-        self.dark_mode = self.load_theme()
         self.autosave_job = None
 
         # 데이터 구조: { "이름": {"quotes": ["어록1", "어록2"], "favorite": True/False} }
@@ -24,40 +21,53 @@ class QuoteApp:
         self.current_person = None
         self.current_mode = "어록"
 
-        self.load_data()
+        # ⬇️ 통합 파일에서 데이터와 테마를 한 번에 불러옴
+        self.dark_mode = self.load_data()
+
         self.create_widgets()
         self.apply_theme()
         self.start_autosave()
-        
+
         # 창을 닫을 때 자동 저장 설정
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def load_data(self):
-        if os.path.exists(DATA_FILE):
+        if os.path.exists(COMBINED_FILE):
             try:
-                with open(DATA_FILE, "r", encoding="utf-8") as f:
-                    self.data = json.load(f)
+                with open(COMBINED_FILE, "r", encoding="utf-8") as f:
+                    content = json.load(f)
+                    self.data = content.get("data", {})
+                    theme_data = content.get("theme", {})
+                    return theme_data.get("dark_mode", False)
             except Exception as e:
                 messagebox.showerror("오류", f"데이터를 불러오는 중 문제가 발생함.\n{e}")
                 self.data = {}
+                return False
         else:
             self.data = {}
+            return False
 
     def save_data(self):
+        """인물 데이터와 테마 설정을 하나의 파일에 통합 저장"""
         self.save_current_input()
 
-        temp_file = DATA_FILE + ".tmp"
+        temp_file = COMBINED_FILE + ".tmp"
 
         try:
+            combined_content = {
+                "theme": {"dark_mode": self.dark_mode},
+                "data": self.data
+            }
+
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(
-                    self.data,
+                    combined_content,
                     f,
                     ensure_ascii=False,
                     indent=4
                 )
 
-            os.replace(temp_file, DATA_FILE)
+            os.replace(temp_file, COMBINED_FILE)
 
         except (OSError, TypeError, ValueError) as e:
             messagebox.showerror(
@@ -152,11 +162,12 @@ class QuoteApp:
         )
         self.theme_btn.pack(side=tk.RIGHT, padx=5)
 
-        # 텍스트 박스 상단 라벨도 모드에 따라 바뀌도록 텍스트 프레임 구성
-        quote_frame = tk.LabelFrame(right_frame, text="기록 상자", font=("맑은 고딕", 10, "bold"))
-        quote_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # 텍스트 박스 상단 라벨이 모드에 따라 바뀌도록 수정
+        initial_label = "어록 목록" if self.mode_combobox.get() == "어록" else "정보 목록"
+        self.quote_frame = tk.LabelFrame(right_frame, text=initial_label, font=("맑은 고딕", 10, "bold"))
+        self.quote_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.quote_text = scrolledtext.Text(quote_frame, wrap=tk.WORD, font=("맑은 고딕", 11), state=tk.DISABLED)
+        self.quote_text = scrolledtext.Text(self.quote_frame, wrap=tk.WORD, font=("맑은 고딕", 11), state=tk.DISABLED)
         self.quote_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # 초기 목록 로드
@@ -215,8 +226,12 @@ class QuoteApp:
         key = "quotes" if self.mode_combobox.get() == "어록" else "info"
         items = self.data[name].get(key, [])
         self.quote_text.insert(tk.END, "\n".join(items))
+
+        # 현재 모드에 맞게 프레임 제목 변경
+        mode_text = "어록" if self.mode_combobox.get() == "어록" else "정보"
+        self.quote_frame.config(text=f"{mode_text} 목록")
         
-        # 모드가 실제로 바뀔 때만 처리
+    # 모드가 실제로 바뀔 때만 처리
     def on_mode_change(self, event):
         new_mode = self.mode_combobox.get()
         
@@ -239,6 +254,9 @@ class QuoteApp:
                 new_key = "quotes" if self.current_mode == "어록" else "info"
                 new_items = self.data[self.current_person].get(new_key, [])
                 self.quote_text.insert(tk.END, "\n".join(new_items))
+
+                # 모드 변경 시 프레임 제목 변경
+                self.quote_frame.config(text=f"{self.current_mode} 목록")
 
     def on_all_select(self, event):
         selection = self.all_listbox.curselection()
@@ -400,35 +418,10 @@ class QuoteApp:
                 self.autosave
             )
 
-    def load_theme(self):
-        """마지막 테마 불러오기"""
-        try:
-            with open(THEME_FILE, "r", encoding="utf-8") as f:
-                theme = json.load(f)
-
-            return theme.get("dark_mode", False)
-
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return False
-
-    def save_theme(self):
-        """현재 테마 저장"""
-        try:
-            with open(THEME_FILE, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"dark_mode": self.dark_mode},
-                    f,
-                    indent=4
-                )
-
-        except OSError as e:
-            messagebox.showerror("오류", f"테마 저장 실패:\n{e}")
-
     def toggle_theme(self):
         self.dark_mode = not self.dark_mode
-
         self.apply_theme()
-        self.save_theme()
+        self.save_data()
 
     def apply_theme(self):
         if self.dark_mode:
@@ -599,7 +592,6 @@ class QuoteApp:
 
         # 데이터와 테마 저장
         self.save_data()
-        self.save_theme()
 
         self.root.destroy()
 
