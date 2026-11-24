@@ -26,4 +26,4 @@ Python Tkinter 기반의 **주변인 데이터 기록 프로그램**. 인물별 
 python app.pyw
 ```
 
-데이터는 `quotes_data.json`, 테마 설정은 `theme.json`에 저장된다.
+데이터와 테마 설정은 `app_data.json`에 저장된다.
